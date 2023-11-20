@@ -1,0 +1,134 @@
+
+// Program: GOLD Edge MT5
+// Developer's site: forexroboteasy.com
+// Developer: Forex Robot Easy Team
+
+// Include necessary libraries
+#include <Trade\Trade.mqh>
+#include <MovingAverages.mqh>
+#include <RelativeStrengthIndex.mqh>
+
+// Define input parameters
+input int MA_Period = 50; // Period for moving averages
+input int RSI_Period = 14; // Period for Relative Strength Index
+input double Grid_Step = 10.0; // Grid trading step
+input double Trailing_Stop = 20.0; // Trailing stop value
+
+// Define global variables
+CTrade trade; // Trade object
+CMovingAverages ma; // Moving averages object
+CRSI rsi; // Relative Strength Index object
+double lastProfit = 0; // Last profit
+double lastLoss = 0; // Last loss
+double gridLevel = 0; // Current grid level
+bool isGridTrade = false; // Flag for grid trading
+bool isDDReduce = false; // Flag for DD reduce
+
+// Initialize the expert advisor
+int OnInit()
+{
+   trade.SetExpertMagicNumber(123456); // Set magic number for expert advisor
+   return(INIT_SUCCEEDED);
+}
+
+// Execute the expert advisor on each tick
+void OnTick()
+{
+   // Check if grid trading is enabled
+   if(isGridTrade)
+   {
+      // Check if current price is below grid level
+      if(SymbolInfoDouble(_Symbol, SYMBOL_BID) < gridLevel)
+      {
+         // Calculate lot size based on available balance
+         double lotSize = trade.AccountBalance() / MarketInfo(_Symbol, MODE_TICKVALUE) / MarketInfo(_Symbol, MODE_TICKSIZE);
+
+         // Open a buy order at the current price
+         trade.Buy(lotSize, _Symbol, 0, 0, 0, 0, 'Grid Trading');
+
+         // Update grid level
+         gridLevel -= Grid_Step;
+
+         // Set trailing stop for the order
+         trade.PositionSetTrailingStop(Trailing_Stop);
+
+         // Set DD reduce flag to true
+         isDDReduce = true;
+      }
+   }
+
+   // Check if DD reduce is enabled and a drawdown occurs
+   if(isDDReduce && trade.AccountBalance() < lastProfit - lastLoss)
+   {
+      // Close the oldest trade with negative profit
+      trade.PositionSelectByTicket(trade.PositionGetTicket(trade.PositionGetInteger(POSITION_TYPE))) == POSITION_TYPE_SELL ?
+         trade.Sell(trade.PositionGetDouble(POSITION_VOLUME), _Symbol, 0, 0, 0, 0, 'DD Reduce') :
+         trade.Buy(trade.PositionGetDouble(POSITION_VOLUME), _Symbol, 0, 0, 0, 0, 'DD Reduce');
+
+      // Close the most recent profitable trade
+      trade.PositionSelectByTicket(trade.PositionGetTicket(trade.PositionGetInteger(POSITION_TYPE))) == POSITION_TYPE_SELL ?
+         trade.Sell(trade.PositionGetDouble(POSITION_VOLUME), _Symbol, 0, 0, 0, 0, 'DD Reduce') :
+         trade.Buy(trade.PositionGetDouble(POSITION_VOLUME), _Symbol, 0, 0, 0, 0, 'DD Reduce');
+
+      // Set DD reduce flag to false
+      isDDReduce = false;
+   }
+
+   // Calculate moving averages
+   double maValue = ma.iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_SMA, PRICE_CLOSE, 0);
+
+   // Calculate RSI
+   double rsiValue = rsi.iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE, 0);
+
+   // Check if conditions are met for opening a buy order
+   if(maValue > ma.iMA(_Symbol, PERIOD_CURRENT, MA_Period, 1, MODE_SMA, PRICE_CLOSE, 0) &&
+      rsiValue > 50)
+   {
+      // Calculate lot size based on available balance
+      double lotSize = trade.AccountBalance() / MarketInfo(_Symbol, MODE_TICKVALUE) / MarketInfo(_Symbol, MODE_TICKSIZE);
+
+      // Open a buy order at the current price
+      trade.Buy(lotSize, _Symbol, 0, 0, 0, 0, 'Trend Following');
+
+      // Set trailing stop for the order
+      trade.PositionSetTrailingStop(Trailing_Stop);
+
+      // Set DD reduce flag to true
+      isDDReduce = true;
+   }
+
+   // Check if conditions are met for opening a sell order
+   if(maValue < ma.iMA(_Symbol, PERIOD_CURRENT, MA_Period, 1, MODE_SMA, PRICE_CLOSE, 0) &&
+      rsiValue < 50)
+   {
+      // Calculate lot size based on available balance
+      double lotSize = trade.AccountBalance() / MarketInfo(_Symbol, MODE_TICKVALUE) / MarketInfo(_Symbol, MODE_TICKSIZE);
+
+      // Open a sell order at the current price
+      trade.Sell(lotSize, _Symbol, 0, 0, 0, 0, 'Trend Following');
+
+      // Set trailing stop for the order
+      trade.PositionSetTrailingStop(Trailing_Stop);
+
+      // Set DD reduce flag to true
+      isDDReduce = true;
+   }
+}
+
+// Execute the expert advisor on each new bar
+void OnNewBar()
+{
+   // Update last profit and loss
+   lastProfit = trade.PositionGetDouble(POSITION_PROFIT);
+   lastLoss = trade.PositionGetDouble(POSITION_LOSS);
+}
+
+// Handle user input from the panel
+void OnPanelInput(int panelId, const string& input)
+{
+   // Check if user input is to enable or disable grid trading
+   if(panelId == 0)
+   {
+      isGridTrade = (input == '1') ? true : false;
+   }
+}
